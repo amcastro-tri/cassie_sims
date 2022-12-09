@@ -9,7 +9,10 @@ import numpy as np
 # If I know the namespaces...
 from pydrake.common import FindResourceOrThrow
 from pydrake.math import RigidTransform, RollPitchYaw
-from pydrake.multibody.plant import AddMultibodyPlantSceneGraph
+from pydrake.multibody.plant import (
+    AddMultibodyPlantSceneGraph,
+    DiscreteContactSolver,
+)
 from pydrake.multibody.parsing import Parser
 from pydrake.systems.framework import DiagramBuilder
 from pydrake.systems.analysis import Simulator
@@ -28,10 +31,10 @@ def xyz_rpy_deg(xyz, rpy_deg):
 
 def LeftRodOnHeel(plant):
     """Returns the pair (position, frame) for the rod on the heel."""
-    return np.array([[.11877, -.01, 0.0]]), plant.GetFrameByName("heel_spring_left")
+    return np.array([.11877, -.01, 0.0]), plant.GetFrameByName("heel_spring_left")
 
 def LeftRodOnThigh(plant):
-  return np.array([[0.0, 0.0, 0.045]]), plant.GetFrameByName("thigh_left");
+  return np.array([0.0, 0.0, 0.045]), plant.GetFrameByName("thigh_left");
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -57,6 +60,8 @@ def main():
     builder = DiagramBuilder()
     plant, scene_graph = AddMultibodyPlantSceneGraph(
         builder=builder, time_step=args.time_step)
+    plant.set_discrete_contact_solver(DiscreteContactSolver.kSap)
+        
     cassie = Parser(plant=plant).AddModelFromFile(file_name)
 
     # Weld pelvis so it doesn't fall.
@@ -77,9 +82,11 @@ def main():
     kAchillesDamping = 2.0e3
     print(f"heel_spring_left = {heel_spring_left.name()}")
     print(f"p_HeelAttachmentPoint = {p_HeelAttachmentPoint}")
-    #plant.AddDistanceConstraint(
-    #      heel_spring_left, p_HeelAttachmentPoint, thigh_left, p_ThighAttachmentPoint,
-    #      kAchillesLength, kAchillesStiffness, kAchillesDamping)
+    constraint_index = plant.AddDistanceConstraint(
+          heel_spring_left, p_HeelAttachmentPoint,
+          thigh_left, p_ThighAttachmentPoint,
+          kAchillesLength, kAchillesStiffness, kAchillesDamping)
+    print(f"constraint_index = {constraint_index}")
 
     plant.Finalize()
 
