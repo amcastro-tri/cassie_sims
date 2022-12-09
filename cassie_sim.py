@@ -14,8 +14,14 @@ from pydrake.multibody.plant import (
     DiscreteContactSolver,
 )
 from pydrake.multibody.parsing import Parser
+from pydrake.systems.controllers import (
+    PidController,
+    PidControlledSystem)    
 from pydrake.systems.framework import DiagramBuilder
 from pydrake.systems.analysis import Simulator
+from pydrake.systems.primitives import (
+    ConstantVectorSource,
+    Multiplexer)
 
 # Joint teleop with Meshcat. See
 # drake/examples/manipulation_station/joint_teleop.py
@@ -34,7 +40,7 @@ def LeftRodOnHeel(plant):
     return np.array([.11877, -.01, 0.0]), plant.GetFrameByName("heel_spring_left")
 
 def LeftRodOnThigh(plant):
-  return np.array([0.0, 0.0, 0.045]), plant.GetFrameByName("thigh_left");
+  return np.array([0.0, 0.0, 0.045]), plant.GetFrameByName("thigh_left");  
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -89,9 +95,36 @@ def main():
     print(f"constraint_index = {constraint_index}")
 
     plant.Finalize()
+    nq = plant.num_positions()
 
     # Add joint teleop
     teleop = builder.AddSystem(JointSliders(meshcat, plant))
+
+    # Desired state
+    zero_vs = builder.AddSystem(ConstantVectorSource(np.zeros(nq)))
+    mux = builder.AddSystem(Multiplexer(input_sizes=[nq, nq]))
+    builder.Connect(teleop.get_output_port(), mux.get_input_port(0))
+    builder.Connect(zero_vs.get_output_port(0), mux.get_input_port(1))
+
+    # Add controller.    
+    Kp = 100 * np.ones(nq)
+    Kd = 0.1 * np.ones(nq)
+    Ki = np.zeros(nq)
+    print(f"Kp = {Kp}")
+    print(f"Ki = {Ki}")
+    #connect_result=PidControlledSystem.ConnectController(
+    #    plant_input=plant.get_applied_generalized_force_input_port(), 
+    #    plant_output=plant.get_state_output_port(),
+    #    Kp=Kp, Ki=Ki, Kd=Kd, builder=builder)
+    controller = builder.AddSystem(PidController(Kp, Ki, Kd))
+    builder.Connect(plant.get_state_output_port(),
+                    controller.get_input_port_estimated_state())
+
+    # TODO: not all joints are actuated!! we should use plant.get_actuation_input_port()                        
+    builder.Connect(controller.get_output_port_control(),
+                    plant.get_applied_generalized_force_input_port())                        
+    builder.Connect(mux.get_output_port(),
+                    controller.get_input_port_desired_state())
 
     # Add viz.
     visualizer = MeshcatVisualizer.AddToBuilder(builder, scene_graph, meshcat)
