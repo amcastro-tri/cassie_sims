@@ -14,6 +14,10 @@ from pydrake.multibody.parsing import Parser
 from pydrake.systems.framework import DiagramBuilder
 from pydrake.systems.analysis import Simulator
 
+# Joint teleop with Meshcat. See
+# drake/examples/manipulation_station/joint_teleop.py
+from pydrake.multibody.meshcat import JointSliders
+
 # ... and if I don't.
 from pydrake.all import (MeshcatVisualizer, StartMeshcat)
 
@@ -21,6 +25,13 @@ def xyz_rpy_deg(xyz, rpy_deg):
     """Shorthand for defining a pose."""
     rpy_deg = np.asarray(rpy_deg)
     return RigidTransform(RollPitchYaw(rpy_deg * np.pi / 180), xyz)
+
+def LeftRodOnHeel(plant):
+    """Returns the pair (position, frame) for the rod on the heel."""
+    return np.array([[.11877, -.01, 0.0]]), plant.GetFrameByName("heel_spring_left")
+
+def LeftRodOnThigh(plant):
+  return np.array([[0.0, 0.0, 0.045]]), plant.GetFrameByName("thigh_left");
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -55,7 +66,25 @@ def main():
         X_FM=xyz_rpy_deg([0, 1.5, 0], [0, 0, 0]),
     )
 
+    # Add Cassie's distance constraints.
+    heel_spring_left = LeftRodOnHeel(plant)[1].body()
+    p_HeelAttachmentPoint = LeftRodOnHeel(plant)[0]
+    thigh_left = LeftRodOnThigh(plant)[1].body()
+    p_ThighAttachmentPoint = LeftRodOnThigh(plant)[0]
+
+    kAchillesLength = 0.5012
+    kAchillesStiffness = 1.0e6
+    kAchillesDamping = 2.0e3
+    print(f"heel_spring_left = {heel_spring_left.name()}")
+    print(f"p_HeelAttachmentPoint = {p_HeelAttachmentPoint}")
+    #plant.AddDistanceConstraint(
+    #      heel_spring_left, p_HeelAttachmentPoint, thigh_left, p_ThighAttachmentPoint,
+    #      kAchillesLength, kAchillesStiffness, kAchillesDamping)
+
     plant.Finalize()
+
+    # Add joint teleop
+    teleop = builder.AddSystem(JointSliders(meshcat, plant))
 
     # Add viz.
     visualizer = MeshcatVisualizer.AddToBuilder(builder, scene_graph, meshcat)
@@ -69,10 +98,16 @@ def main():
     input("Press Enter to continue...")
 
     # Instantiate simulator and get context.
-    #simulator = Simulator(diagram)
-    #context = simulator.get_mutable_context()
-    #station_context = station.GetMyMutableContextFromRoot(context)
+    simulator = Simulator(diagram)
+    simulator.set_publish_every_time_step(False)
+    simulator.set_target_realtime_rate(args.target_realtime_rate)
+
+    #context = simulator.get_mutable_context()    
     #plant_context = plant.GetMyMutableContextFromRoot(context)
+
+    simulator.Initialize()
+    simulator.AdvanceTo(args.simulation_time)
+
 
 if __name__ == "__main__":
     main()
