@@ -8,6 +8,7 @@ import numpy as np
 
 # If I know the namespaces...
 from pydrake.common import FindResourceOrThrow
+from pydrake.geometry import DrakeVisualizer
 from pydrake.math import RigidTransform, RollPitchYaw
 from pydrake.multibody.tree import (JointIndex, JointActuatorIndex)
 from pydrake.multibody.plant import (
@@ -179,6 +180,7 @@ def main():
 
     # Add viz.
     visualizer = MeshcatVisualizer.AddToBuilder(builder, scene_graph, meshcat)
+    DrakeVisualizer.AddToBuilder(builder, scene_graph)
 
     # Done defining the diagram.
     diagram = builder.Build()
