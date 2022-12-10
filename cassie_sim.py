@@ -70,7 +70,8 @@ def main():
     meshcat = StartMeshcat()
 
     # Add robot.    
-    file_name = "./cassie_v2.urdf"
+    #file_name = "./Cassie/cassie_v2.urdf"
+    file_name = "./Cassie/cassie_fixed_springs.urdf"
     builder = DiagramBuilder()
     plant, scene_graph = AddMultibodyPlantSceneGraph(
         builder=builder, time_step=args.time_step)
