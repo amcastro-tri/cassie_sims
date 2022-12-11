@@ -33,6 +33,48 @@ from pydrake.multibody.meshcat import JointSliders
 # ... and if I don't.
 from pydrake.all import (MeshcatVisualizer, StartMeshcat)
 
+from pydrake.all import (AbstractValue, Cylinder,
+                         Capsule, LeafSystem,
+                         Rgba, RigidTransform, RollPitchYaw,
+                         RotationMatrix,  Sphere)
+
+class PlotCylinder(LeafSystem):
+
+    def __init__(self, meshcat, plant, name, bodyA_index, p_AP, bodyB_index, p_BQ, radius, length, rgba):
+        LeafSystem.__init__(self)
+        self._meshcat = meshcat
+        self._plant = plant
+        self._name = name
+        self._rgba = rgba
+        self._radius = radius
+        self._length = length
+        self._bodyA_index = bodyA_index
+        self._bodyB_index = bodyB_index
+        self._p_AP = p_AP
+        self._p_BQ = p_BQ        
+
+        nb = plant.num_bodies()
+        model = [RigidTransform()]*nb
+        self.DeclareAbstractInputPort("MultibodyPlant poses",
+                                        AbstractValue.Make(model))
+        self.DeclarePeriodicPublishEvent(0.01, 0, self.PublishCylinder)
+
+    def PublishCylinder(self, context):
+        poses = self.get_input_port().Eval(context)
+        X_WA = poses[self._bodyA_index.index()]
+        X_WB = poses[self._bodyB_index.index()]
+        p_WP = X_WA.multiply(self._p_AP)
+        p_WQ = X_WB.multiply(self._p_BQ)
+
+        self._meshcat.SetObject(f"cylinder/{self._name}",
+                                    Cylinder(self._radius, self._length),
+                                    self._rgba)
+        p_WMidpoint = (p_WP + p_WQ)/2
+        X_WC = RigidTransform(RotationMatrix.MakeFromOneVector(
+                        p_WP - p_WQ, 2), p_WMidpoint)
+        self._meshcat.SetTransform(f"cylinder/{self._name}", X_WC)
+
+
 def xyz_rpy_deg(xyz, rpy_deg):
     """Shorthand for defining a pose."""
     rpy_deg = np.asarray(rpy_deg)
@@ -158,7 +200,7 @@ def main():
         actuated_states_selector.get_input_port())
 
     # Add controller.    
-    Kp = 10 * np.ones(nu)
+    Kp = 100 * np.ones(nu)
     Kd = 1 * np.ones(nu)
     Ki = np.zeros(nu)
     print(f"Kp = {Kp}")
@@ -180,7 +222,23 @@ def main():
 
     # Add viz.
     visualizer = MeshcatVisualizer.AddToBuilder(builder, scene_graph, meshcat)
-    DrakeVisualizer.AddToBuilder(builder, scene_graph)
+    
+    # Visualize distance constraint rods.
+    right_rod_viz = builder.AddSystem(PlotCylinder(
+        meshcat, plant, "right_rod", 
+        heel_spring_right, p_RightHeelAttachmentPoint,
+        thigh_right, p_RightThighAttachmentPoint, 
+        0.01, kAchillesLength, Rgba(0.4, 0.4, 0.4,  1.0)))
+    builder.Connect(plant.get_body_poses_output_port(), right_rod_viz.get_input_port())        
+    left_rod_viz = builder.AddSystem(PlotCylinder(
+        meshcat, plant, "left_rod", 
+        heel_spring_left, p_HeelAttachmentPoint,
+        thigh_left, p_ThighAttachmentPoint, 
+        0.01, kAchillesLength, Rgba(0.4, 0.4, 0.4,  1.0)))
+    builder.Connect(plant.get_body_poses_output_port(), left_rod_viz.get_input_port())
+
+    # If we wanted the Drake viz.
+    #DrakeVisualizer.AddToBuilder(builder, scene_graph)
 
     # Done defining the diagram.
     diagram = builder.Build()
