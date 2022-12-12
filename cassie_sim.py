@@ -112,6 +112,7 @@ def main():
 
     # Start the visualizer.
     meshcat = StartMeshcat()
+    meshcat.Set2dRenderMode(xmin=-1.0, xmax=0.4, ymin=-1.2, ymax=0.2)
 
     # Add robot.    
     #file_name = "./Cassie/cassie_v2.urdf"
