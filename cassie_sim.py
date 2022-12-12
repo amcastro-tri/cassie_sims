@@ -2,6 +2,7 @@
 
 import argparse
 
+from math import sqrt
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 import numpy as np
@@ -10,7 +11,7 @@ import numpy as np
 from pydrake.common import FindResourceOrThrow
 from pydrake.geometry import DrakeVisualizer
 from pydrake.math import RigidTransform, RollPitchYaw
-from pydrake.multibody.tree import (JointIndex, JointActuatorIndex)
+from pydrake.multibody.tree import (PdControllerGains, JointIndex, JointActuatorIndex)
 from pydrake.multibody.plant import (
     AddMultibodyPlantSceneGraph,
     DiscreteContactSolver,
@@ -159,10 +160,20 @@ def main():
           kAchillesLength, kAchillesStiffness, kAchillesDamping)
     print(f"num_constraints = {plant.num_constraints()}")
 
+    # Define controllers
+    nu = plant.num_actuators()
+    Kp = 10000
+    Kd = sqrt(Kp)
+    gains = [PdControllerGains(Kp, Kd)]*nu
+    u=0
+    for a in range(0, plant.num_actuators()):
+        actuator = plant.get_joint_actuator(JointActuatorIndex(a))        
+        actuator.set_controller_gains(gains[u])
+        u+=1
+
     plant.Finalize()
     nq = plant.num_positions()
-    nv = plant.num_velocities()
-    nu = plant.num_actuators()
+    nv = plant.num_velocities()    
     print(f"nq = {nq}, nv = {nv}, nu = {nu}")
 
     # Add joint teleop
@@ -197,28 +208,15 @@ def main():
 
     actuated_states_selector = builder.AddSystem(MatrixGain(state_selector))
     builder.Connect(mux.get_output_port(),
-        actuated_states_selector.get_input_port())
+        actuated_states_selector.get_input_port())    
+    
+    # Connect controllers
+    #controller = builder.AddSystem(PidController(state_selector, Kp, Ki, Kd))
+    #builder.Connect(plant.get_state_output_port(),
+    #                controller.get_input_port_estimated_state())
 
-    # Add controller.    
-    Kp = 100 * np.ones(nu)
-    Kd = 1 * np.ones(nu)
-    Ki = np.zeros(nu)
-    print(f"Kp = {Kp}")
-    print(f"Ki = {Ki}")
-    #connect_result=PidControlledSystem.ConnectController(
-    #    plant_input=plant.get_applied_generalized_force_input_port(), 
-    #    plant_output=plant.get_state_output_port(),
-    #    Kp=Kp, Ki=Ki, Kd=Kd, builder=builder)
-    controller = builder.AddSystem(PidController(state_selector, Kp, Ki, Kd))
-    builder.Connect(plant.get_state_output_port(),
-                    controller.get_input_port_estimated_state())
-
-    # TODO: not all joints are actuated!! we should use plant.get_actuation_input_port()                        
-    builder.Connect(controller.get_output_port_control(),
-                    plant.get_actuation_input_port())                        
     builder.Connect(actuated_states_selector.get_output_port(),
-
-                    controller.get_input_port_desired_state())
+                    plant.get_desired_state_input_port(cassie))
 
     # Add viz.
     visualizer = MeshcatVisualizer.AddToBuilder(builder, scene_graph, meshcat)
@@ -253,8 +251,11 @@ def main():
     simulator.set_publish_every_time_step(False)
     simulator.set_target_realtime_rate(args.target_realtime_rate)
 
-    #context = simulator.get_mutable_context()    
-    #plant_context = plant.GetMyMutableContextFromRoot(context)
+    context = simulator.get_mutable_context()    
+    plant_context = plant.GetMyMutableContextFromRoot(context)
+
+    # Zero feedforward actuation torques.
+    plant.get_actuation_input_port().FixValue(plant_context, np.zeros(nu))
 
     simulator.Initialize()
     simulator.AdvanceTo(args.simulation_time)
